@@ -2,10 +2,15 @@ library(shiny)
 library(tidyverse)
 library(DT)
 
-calls <- read.csv("311_Phone_Call_Log_Mod.csv")
-licenses <- read.csv("Business_Licenses.csv")
-parks <- read.csv("Parks_Locations_and_Features.csv")
-facilities <- read.csv("Public_Facilities.csv")
+
+source("data_prep.R", local = TRUE)
+
+#calls <- read.csv("311_Phone_Call_Log_Mod.csv")
+#licenses <- read.csv("Business_Licenses.csv")
+#parks <- read.csv("Parks_Locations_and_Features.csv")
+#facilities <- read.csv("Public_Facilities.csv")
+
+
 
 ui <- fluidPage(
   titlePanel("City of South Bend"),
