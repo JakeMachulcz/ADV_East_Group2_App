@@ -13,3 +13,13 @@ facilities <- facilities %>%
     POPL_ZIP = as.character(POPL_ZIP)
   )
 
+facilities <- facilities %>%
+  rename(
+    Name = POPL_NAME,
+    Type = POPL_TYPE,
+    Address = POPL_ADDR1,
+    City = POPL_CITY,
+    state = POPL_STATE,
+    zip_Code = POPL_ZIP,
+    Phone = POPL_PHONE
+  )
