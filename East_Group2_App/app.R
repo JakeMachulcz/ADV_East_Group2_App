@@ -51,12 +51,34 @@ ui <- fluidPage(
     ),
     #Erich's work ---------------------------------------------------------------------------------------------
     tabPanel(
-      "Public Facilities",
-      h3("Public Facilities"),
-      DT::dataTableOutput("table4")
+      "Facilities Near Parks",
+      h3("Facilities Near Parks"),
+      h4("Which public facilities are within a chosen distance of parks?"),
+      sidebarLayout(
+        sidebarPanel(
+          selectInput(
+            inputId = "facility_park_select",
+            label = "Select Park(s):",
+            choices = sort(unique(parks_simpleB$Park_Name)),
+            selected = NULL,
+            multiple = TRUE
+          ),
+          sliderInput(
+            inputId = "facility_radius",
+            label = "Distance from Park (meters):",
+            min = 100, max = 2000, value = 500, step = 50
+          )
+        ),
+        mainPanel(
+          leafletOutput("facilities_near_map", height = 600),
+          br(),
+          DT::dataTableOutput("facilities_near_table")
+        )
+      )
     )
   )
 )
+    
 
 server <- function(input, output, session) {
   
@@ -134,8 +156,68 @@ server <- function(input, output, session) {
   ###Jake - tab3 ---------------------------------------------------------------------------------------------
   output$table3 <- DT::renderDataTable(parks)
   
-  ###Erich - tab4 ---------------------------------------------------------------------------------------------
-  output$table4 <- DT::renderDataTable(facilities)
+  ###Erich - tab4 (Facilities Near Parks) ---------------------------------------------------------------------------------------------
+  
+  facilities_near_data <- reactive({
+    generate_facilities_near_parks(
+      selected_parks = input$facility_park_select,
+      radius_m = input$facility_radius
+    )
+  })
+  
+  output$facilities_near_map <- renderLeaflet({
+    req(input$facility_radius)
+    
+    dat <- facilities_near_data()
+    
+    # 1) parks: turn buffer column into the ACTIVE geometry (polygons)
+    parks_poly <- dat$parks_buf %>%
+      st_set_geometry("buffer") %>%   # <-- THIS is the key fix
+      st_transform(4326)
+    
+    # 2) facilities: convert to lat/lon and create Lon/Lat from geometry (safe)
+    fac_map <- st_transform(dat$facilities_near, 4326)
+    coords <- st_coordinates(fac_map)
+    fac_map$Lon <- coords[, 1]
+    fac_map$Lat <- coords[, 2]
+    
+    leaflet() %>%
+      addProviderTiles(providers$CartoDB.Positron) %>%
+      setView(lng = -86.2520, lat = 41.6764, zoom = 11) %>%
+      
+      # Park buffer polygons
+      addPolygons(
+        data = parks_poly,
+        color = "blue",
+        weight = 2,
+        fillOpacity = 0.10,
+        popup = ~paste0("<b>Park:</b> ", Park_Name,
+                        "<br><b>Radius (m):</b> ", input$facility_radius)
+      ) %>%
+      
+      # Facility points inside zones
+      addCircleMarkers(
+        data = fac_map,
+        lng = ~Lon, lat = ~Lat,
+        radius = 6,
+        popup = ~paste0(
+          "<b>", Name, "</b><br/>",
+          Type, "<br/>",
+          Address, "<br/>",
+          City, ", ", state, " ", zip_Code, "<br/>",
+          "Phone: ", Phone
+        )
+      )
+  })
+  
+  output$facilities_near_table <- DT::renderDataTable({
+    dat <- facilities_near_data()
+    fac <- dat$facilities_near %>% st_drop_geometry()
+    
+    fac %>%
+      select(Name, Type, Address, City, state, zip_Code, Phone, Lat, Lon) %>%
+      DT::datatable(options = list(pageLength = 10), rownames = FALSE)
+  })
   
 }
 

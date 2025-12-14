@@ -138,15 +138,14 @@ licenses <- read.csv("Business_Licenses.csv")
 
 #Erich -- Facilities data  -------------------------------------------------------------------------------------
 facilities <- read.csv("Public_Facilities.csv")
+
 facilities <- facilities %>%
   mutate(
     POPL_ADDR1 = POPL_ADDR1 |>
       gsub("\r\n", ", ", x = _) |>
       sub("\\s*\\(.*$", "", x = _),
     POPL_ZIP = as.character(POPL_ZIP)
-  )
-
-facilities <- facilities %>%
+  ) |>
   rename(
     Name = POPL_NAME,
     Type = POPL_TYPE,
@@ -155,4 +154,49 @@ facilities <- facilities %>%
     state = POPL_STATE,
     zip_Code = POPL_ZIP,
     Phone = POPL_PHONE
+  ) |>
+  filter(!is.na(Lat), !is.na(Lon))
+
+#convert Facilities data to sf
+facilities_sf <- st_as_sf(
+  facilities,
+  coords = c("Lon", "Lat"),
+  crs = lat_lon_crs,
+  remove = FALSE
+) |>
+  st_transform(sb_utm)
+
+
+#Facilities Map
+generate_facilities_near_parks <- function(
+    selected_parks = NULL, radius_m = 500) {
+  
+  parks_filtered <- parks_proj
+  if (!is.null(selected_parks) && length(selected_parks) > 0) {
+    parks_filtered <- parks_proj %>% filter(Park_Name %in% selected_parks)
+  }
+  
+  # Buffer selected parks
+  parks_buf <- parks_filtered %>%
+    mutate(buffer = st_buffer(geometry, dist = radius_m))
+  
+  # Which facilities fall inside ANY selected park buffer?
+  hits <- lengths(st_intersects(
+    facilities_sf, st_as_sf(parks_buf, sf_column_name = "buffer") %>% 
+      st_geometry())) > 0
+  
+  facilities_near <- facilities_sf %>%
+    mutate(near_park = hits) %>%
+    filter(near_park)
+  
+  # Optional: count how many facilities are near each selected park (summary for popup/table)
+  # (More advanced; skip if you want simple)
+  list(
+    parks_buf = parks_buf,
+    facilities_near = facilities_near
   )
+}
+
+
+
+
