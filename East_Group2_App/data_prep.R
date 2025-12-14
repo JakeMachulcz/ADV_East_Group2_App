@@ -6,7 +6,17 @@ library(leaflet)
 #get parks data
 parks <- read.csv("Parks_Locations_and_Features.csv")
 
+#convert dataset to sf
+lat_lon_crs = 4326
+parks_sf <- st_as_sf(
+  parks,
+  coords = c("Lon", "Lat"),
+  crs = lat_lon_crs
+)
 
+#project to meters to measure distance
+sb_utm = 32616 #utm code for South Bend gotten from the internet
+parks_proj <- st_transform(parks_sf, sb_utm)
 
 
 ### Bridget -- Crime data ----------------------------------------------------------------------------
@@ -16,39 +26,26 @@ crime <- read.csv("SB_PoliceData.csv")
 #remove offense column since it is all NA
 crime_simpleB <- crime[c('lat','lon','date','street')]
 
-#simplify park data for this analysis
-parks_simpleB <- parks[c('Park_Name', "Lon", "Lat")] 
-
-
-## crime map code ##
-#convert both datasets to sf
-lat_lon_crs = 4326
-parks_sf <- st_as_sf(
-  parks_simpleB,
-  coords = c("Lon", "Lat"),
-  crs = lat_lon_crs
-)
-
+##convert crime data to be usable with parks
 crime_sf <- st_as_sf(
   crime_simpleB,
   coords = c("lon", "lat"),
   crs = lat_lon_crs
 )
-
-#project to meters to measure distance
-sb_utm = 32616 #utm code for South Bend gotten from the internet
-parks_proj  <- st_transform(parks_sf, sb_utm)
-crime_proj  <- st_transform(crime_sf, sb_utm)
+crime_proj <- st_transform(crime_sf, sb_utm)
 
 #confirm date column is the right type
 crime_proj$date <- as.Date(crime_proj$date)
 
+#simplify park data for this analysis
+parks_projB <- parks_proj[c('Park_Name', "geometry")] 
+
 #function to filter datasets and call generating functions
-respond_to_inputs <- function(selected_parks, crime_radius, start_date, end_date) {
+respond_to_inputsB <- function(selected_parks, crime_radius, start_date, end_date) {
   #filter for selected parks
-  parks_filtered <- parks_proj
+  parks_filteredB <- parks_projB
   if (!is.null(selected_parks)) {
-    parks_filtered <- parks_filtered %>% filter(Park_Name %in% selected_parks)
+    parks_filteredB <- parks_filteredB %>% filter(Park_Name %in% selected_parks)
   }
   
   #filter crimes by date
@@ -59,11 +56,11 @@ respond_to_inputs <- function(selected_parks, crime_radius, start_date, end_date
   }
   
   #create parks with buffer by radius
-  parks_filtered <- parks_filtered %>%
+  parks_filteredB <- parks_filteredB %>%
     mutate(buffer = st_buffer(geometry, dist = crime_radius))
   
   #return filtered datasets
-  list(parks = parks_filtered, crimes = crimes_filtered)
+  list(parks = parks_filteredB, crimes = crimes_filtered)
   
 }
 
@@ -83,24 +80,24 @@ generate_crime_map <- function(prepped_data) {
     filter(!is.na(Park_Name))
   
   #join crime_count to df
-  park_data <- prepped_data$parks %>%
+  park_dataB <- prepped_data$parks %>%
     left_join(crime_counts, by = "Park_Name") %>%
     mutate(crime_count = replace_na(crime_count, 0))
   
   #convert back to use with leaflet
-  parks_map <- st_transform(park_data, lat_lon_crs)
+  parks_mapB <- st_transform(park_dataB, lat_lon_crs)
   
   #return map
-  return(parks_map)
+  return(parks_mapB)
 }
 
 ##function to create crime time series
 generate_crime_timeseries <- function(prepped_data) {
-  parks_buffer <- prepped_data$parks %>%
+  parks_bufferB <- prepped_data$parks %>%
     st_set_geometry("buffer")
   
   #get crimes that happened near a park
-  crimes_within <- st_join(prepped_data$crimes, parks_buffer, join = st_within)
+  crimes_within <- st_join(prepped_data$crimes, parks_bufferB, join = st_within)
   
   #label crimes that happened near the park
   crimes_by_loc <- crimes_within %>%
@@ -177,22 +174,27 @@ generate_facilities_near_parks <- function(
   
   parks_filtered <- parks_proj
   if (!is.null(selected_parks) && length(selected_parks) > 0) {
-    parks_filtered <- parks_proj %>% dplyr::filter(Park_Name %in% selected_parks)
+    parks_filtered <- parks_proj %>% filter(Park_Name %in% selected_parks)
   }
   
+  # Buffer selected parks
   parks_buf <- parks_filtered %>%
     mutate(buffer = st_buffer(geometry, dist = radius_m))
   
-  buf_geom <- st_geometry(parks_buf %>% st_set_geometry("buffer"))
+  # Which facilities fall inside ANY selected park buffer?
+  hits <- lengths(st_intersects(
+    facilities_sf, st_as_sf(parks_buf, sf_column_name = "buffer") %>% 
+      st_geometry())) > 0
   
-  hits <- lengths(st_intersects(facilities_sf, buf_geom)) > 0
+  facilities_near <- facilities_sf %>%
+    mutate(near_park = hits) %>%
+    filter(near_park)
   
-  facilities_all <- facilities_sf %>%
-    mutate(near_park = hits)
-  
+  # Optional: count how many facilities are near each selected park (summary for popup/table)
+  # (More advanced; skip if you want simple)
   list(
     parks_buf = parks_buf,
-    facilities_all = facilities_all
+    facilities_near = facilities_near
   )
 }
 
