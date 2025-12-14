@@ -173,27 +173,22 @@ generate_facilities_near_parks <- function(
   
   parks_filtered <- parks_proj
   if (!is.null(selected_parks) && length(selected_parks) > 0) {
-    parks_filtered <- parks_proj %>% filter(Park_Name %in% selected_parks)
+    parks_filtered <- parks_proj %>% dplyr::filter(Park_Name %in% selected_parks)
   }
   
-  # Buffer selected parks
   parks_buf <- parks_filtered %>%
     mutate(buffer = st_buffer(geometry, dist = radius_m))
   
-  # Which facilities fall inside ANY selected park buffer?
-  hits <- lengths(st_intersects(
-    facilities_sf, st_as_sf(parks_buf, sf_column_name = "buffer") %>% 
-      st_geometry())) > 0
+  buf_geom <- st_geometry(parks_buf %>% st_set_geometry("buffer"))
   
-  facilities_near <- facilities_sf %>%
-    mutate(near_park = hits) %>%
-    filter(near_park)
+  hits <- lengths(st_intersects(facilities_sf, buf_geom)) > 0
   
-  # Optional: count how many facilities are near each selected park (summary for popup/table)
-  # (More advanced; skip if you want simple)
+  facilities_all <- facilities_sf %>%
+    mutate(near_park = hits)
+  
   list(
     parks_buf = parks_buf,
-    facilities_near = facilities_near
+    facilities_all = facilities_all
   )
 }
 

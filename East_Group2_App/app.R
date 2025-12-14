@@ -1,6 +1,8 @@
 library(shiny)
 library(tidyverse)
 library(DT)
+library(sf)
+library(leaflet)
 
 #bring in prepped data
 source("data_prep.R")
@@ -59,7 +61,7 @@ ui <- fluidPage(
           selectInput(
             inputId = "facility_park_select",
             label = "Select Park(s):",
-            choices = sort(unique(parks_simpleB$Park_Name)),
+            choices = parks_proj$Park_Name,
             selected = NULL,
             multiple = TRUE
           ),
@@ -81,6 +83,16 @@ ui <- fluidPage(
     
 
 server <- function(input, output, session) {
+  
+  ## ---- Sync Bridget → Facilities (GLOBAL observer) ----
+  observeEvent(input$park_select, {
+    updateSelectInput(
+      session,
+      inputId = "facility_park_select",
+      selected = input$park_select
+    )
+  }, ignoreInit = TRUE)
+  
   
   ###Bridget - tab1 ---------------------------------------------------------------------------------------------
   #create commonly used start/end dates
@@ -157,8 +169,8 @@ server <- function(input, output, session) {
   output$table3 <- DT::renderDataTable(parks)
   
   ###Erich - tab4 (Facilities Near Parks) ---------------------------------------------------------------------------------------------
-  
-  facilities_near_data <- reactive({
+
+  facilities_flagged <- reactive({
     generate_facilities_near_parks(
       selected_parks = input$facility_park_select,
       radius_m = input$facility_radius
@@ -166,40 +178,52 @@ server <- function(input, output, session) {
   })
   
   output$facilities_near_map <- renderLeaflet({
-    req(input$facility_radius)
+    dat <- facilities_flagged()
     
-    dat <- facilities_near_data()
+    # ALL facilities, back to lat/lon for leaflet
+    fac_all <- st_transform(dat$facilities_all, 4326)
+    coords <- st_coordinates(fac_all)
+    fac_all$Lon <- coords[,1]
+    fac_all$Lat <- coords[,2]
     
-    # 1) parks: turn buffer column into the ACTIVE geometry (polygons)
+    # subset to highlight (near selected parks)
+    fac_near <- fac_all %>% dplyr::filter(near_park)
+    
+    # buffers (only meaningful when parks selected; still OK if none)
     parks_poly <- dat$parks_buf %>%
-      st_set_geometry("buffer") %>%   # <-- THIS is the key fix
+      st_set_geometry("buffer") %>%
       st_transform(4326)
-    
-    # 2) facilities: convert to lat/lon and create Lon/Lat from geometry (safe)
-    fac_map <- st_transform(dat$facilities_near, 4326)
-    coords <- st_coordinates(fac_map)
-    fac_map$Lon <- coords[, 1]
-    fac_map$Lat <- coords[, 2]
     
     leaflet() %>%
       addProviderTiles(providers$CartoDB.Positron) %>%
       setView(lng = -86.2520, lat = 41.6764, zoom = 11) %>%
       
-      # Park buffer polygons
+      # Optional: show selected park buffer zones
       addPolygons(
         data = parks_poly,
-        color = "blue",
-        weight = 2,
+        color = "blue", weight = 2,
         fillOpacity = 0.10,
         popup = ~paste0("<b>Park:</b> ", Park_Name,
                         "<br><b>Radius (m):</b> ", input$facility_radius)
       ) %>%
       
-      # Facility points inside zones
+      # ALL facilities (background)
       addCircleMarkers(
-        data = fac_map,
+        data = fac_all,
         lng = ~Lon, lat = ~Lat,
-        radius = 6,
+        radius = 5,
+        opacity = 0.4,
+        fillOpacity = 0.2,
+        popup = ~paste0("<b>", Name, "</b><br/>", Type, "<br/>", Address)
+      ) %>%
+      
+      # Facilities near selected park(s) (highlight)
+      addCircleMarkers(
+        data = fac_near,
+        lng = ~Lon, lat = ~Lat,
+        radius = 7,
+        opacity = 1,
+        fillOpacity = 0.8,
         popup = ~paste0(
           "<b>", Name, "</b><br/>",
           Type, "<br/>",
@@ -211,13 +235,21 @@ server <- function(input, output, session) {
   })
   
   output$facilities_near_table <- DT::renderDataTable({
-    dat <- facilities_near_data()
-    fac <- dat$facilities_near %>% st_drop_geometry()
+    dat <- facilities_flagged()
+    fac <- dat$facilities_all %>%
+      dplyr::filter(near_park) %>%
+      st_drop_geometry()
+    
+    # If no park selected, show an empty table instead of "everything is near"
+    if (is.null(input$facility_park_select) || length(input$facility_park_select) == 0) {
+      fac <- fac[0, ]  # zero-row table
+    }
     
     fac %>%
-      select(Name, Type, Address, City, state, zip_Code, Phone, Lat, Lon) %>%
+      dplyr::select(Name, Type, Address, City, state, zip_Code, Phone) %>%
       DT::datatable(options = list(pageLength = 10), rownames = FALSE)
   })
+  
   
 }
 
