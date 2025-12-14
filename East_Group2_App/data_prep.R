@@ -43,11 +43,13 @@ crime_proj  <- st_transform(crime_sf, sb_utm)
 #confirm date column is the right type
 crime_proj$date <- as.Date(crime_proj$date)
 
-#function to create crime map with dynamic radius and start/end dates
-generate_crime_map <- function(crime_radius, start_date = NULL, end_date = NULL) {
-  #create parks with buffer by radius
-  parks_buffered <- parks_proj %>%
-    mutate(buffer = st_buffer(geometry, dist = crime_radius))
+#function to filter datasets and call generating functions
+respond_to_inputs <- function(selected_parks, crime_radius, start_date, end_date) {
+  #filter for selected parks
+  parks_filtered <- parks_proj
+  if (!is.null(selected_parks)) {
+    parks_filtered <- parks_filtered %>% filter(Park_Name %in% selected_parks)
+  }
   
   #filter crimes by date
   crimes_filtered <- crime_proj
@@ -56,65 +58,67 @@ generate_crime_map <- function(crime_radius, start_date = NULL, end_date = NULL)
       filter(date >= start_date & date <= end_date)
   }
   
+  #create parks with buffer by radius
+  parks_filtered <- parks_filtered %>%
+    mutate(buffer = st_buffer(geometry, dist = crime_radius))
+  
+  #return filtered datasets
+  list(parks = parks_filtered, crimes = crimes_filtered)
+  
+}
+
+#function to create crime map
+generate_crime_map <- function(prepped_data) {
   #join park and crime data
   parks_with_crime <- st_join(
-    crimes_filtered,
-    parks_buffered %>% st_set_geometry("buffer"),
+    prepped_data$crimes,
+    prepped_data$parks %>% st_set_geometry("buffer"),
     join = st_within
   )
-
+  
   #calculate number of crimes per park and remove crimes not near a park
   crime_counts <- parks_with_crime %>%
     st_drop_geometry() %>%
     count(Park_Name, name = "crime_count") %>%
     filter(!is.na(Park_Name))
-
+  
   #join crime_count to df
-  parks_buffered <- parks_buffered %>%
+  park_data <- prepped_data$parks %>%
     left_join(crime_counts, by = "Park_Name") %>%
     mutate(crime_count = replace_na(crime_count, 0))
   
   #convert back to use with leaflet
-  parks_map <- st_transform(parks_buffered, lat_lon_crs)
+  parks_map <- st_transform(park_data, lat_lon_crs)
   
   #return map
   return(parks_map)
 }
 
-## crime data series code ##
-generate_crime_timeseries <- function(selected_parks = NULL, crime_radius, start_date, end_date) {
-  #filter for selected parks
-  parks_filtered <- parks_proj
-  if (!is.null(selected_parks) && length(selected_parks) > 0) {
-    parks_filtered <- parks_filtered %>% filter(Park_Name %in% selected_parks)
-  }
-  
-  #filter for crime dates
-  crimes_filtered <- crime_proj %>%
-    filter(date >= start_date & date <= end_date)
-  
-  #create buffers around selected parks
-  parks_buffered <- parks_filtered %>%
-    st_buffer(dist = crime_radius)
+##function to create crime time series
+generate_crime_timeseries <- function(prepped_data) {
+  parks_buffer <- prepped_data$parks %>%
+    st_set_geometry("buffer")
   
   #get crimes that happened near a park
-  crimes_inside <- st_intersection(crimes_filtered, parks_buffered) %>%
-    st_drop_geometry() %>%
-    distinct(row_number())
-
+  crimes_within <- st_join(prepped_data$crimes, parks_buffer, join = st_within)
+  
   #label crimes that happened near the park
-  crimes_filtered <- crimes_filtered %>%
-    mutate(location = ifelse(row_number() %in% row_number(crimes_inside), "Within", "Outside"))
+  crimes_by_loc <- crimes_within %>%
+    mutate(location = ifelse(!is.na(Park_Name), "Within", "Outside")) %>%
+    st_drop_geometry()
   
   #find volume and percentage of crimes near parks
-  crime_ts <- crimes_filtered %>%
+  crime_ts <- crimes_by_loc %>%
     mutate(month = floor_date(date, "month")) %>%
     group_by(month) %>%
     summarise(crime_count = sum(location == "Within"), crime_perc = crime_count / n() * 100)
   
+  #create a scaling of percent for graphing
+  crime_ts <- crime_ts %>%
+    mutate(crime_perc_scaled = crime_perc / 100 * max(crime_ts$crime_count))
+  
   #return timeseries
   return(crime_ts)
- 
 }
 
 
