@@ -1,6 +1,8 @@
 library(shiny)
 library(tidyverse)
 library(DT)
+library(plotly)
+library(glue)
 
 #bring in prepped data
 source("data_prep.R")
@@ -12,7 +14,7 @@ ui <- fluidPage(
     #park chooser
     column(6,
            selectInput(inputId = "park_select", label = "Select Park(s):",
-                       choices = parks_projB$Park_Name, selected = NULL, multiple = TRUE)
+                       choices = sort(parks_projB$Park_Name), selected = NULL, multiple = TRUE)
     ),
     #radius chooser
     column(6,
@@ -60,10 +62,36 @@ ui <- fluidPage(
     ),
     #Jake's work ---------------------------------------------------------------------------------------------
     tabPanel(
-      "Parks",
-      h3("Parks"),
-      DT::dataTableOutput("table3")
+      "Streetlight Data",
+      h3("How well-lit is each park?"),
+      
+      fluidRow(
+        column(
+          12,
+          sliderInput(
+            inputId = "min_lumens",
+            label = "Minimum streetlight brightness (lumens):",
+            min = min(sl_clean$Lumens, na.rm = TRUE),
+            max = max(sl_clean$Lumens, na.rm = TRUE),
+            value = min(sl_clean$Lumens, na.rm = TRUE),
+            step = 500
+          )
+        )
+      ),
+      
+      br(),
+      
+      fluidRow(column(6, h4("Streetlights in South Bend"))),
+      
+      fluidRow(
+        column(6, leafletOutput("light_map", height = 600)),
+        column(6, plotOutput("light_hist", height = 600))
+      ),
+      
+      br(),
+      br()
     ),
+    
     #Erich's work ---------------------------------------------------------------------------------------------
     tabPanel(
       "Facilities Near Parks",
@@ -177,7 +205,95 @@ server <- function(input, output, session) {
   output$table2 <- DT::renderDataTable(licenses)
   
   ###Jake - tab3 ---------------------------------------------------------------------------------------------
-  output$table3 <- DT::renderDataTable(parks)
+  prepped_dataJ <- reactive({
+    respond_to_inputsJ(
+      selected_parks = input$park_select,
+      light_radius   = input$radius,
+      min_lumens     = input$min_lumens
+    )
+  })
+  
+  ## Map
+  output$light_map <- renderLeaflet({
+    
+    prepped <- prepped_dataJ()
+    
+    # Park buffers in same CRS as streetlights
+    parks_buf <- prepped$parks %>%
+      st_set_geometry("buffer") %>%
+      # match CRS of lights, since it was a bug
+      st_transform(st_crs(prepped$streetlights))
+    
+    # Only streetlights within selected park buffers
+    lights_within <- st_join(
+      prepped$streetlights,
+      parks_buf,
+      join = st_within
+    ) %>%
+      filter(!is.na(Park_Name)) %>%
+      st_transform(4326)
+    
+    # Transform parks to lat/lon for leaflet
+    parks_poly <- parks_buf %>% st_transform(4326)
+    
+    leaflet() %>%
+      addProviderTiles(providers$CartoDB.DarkMatter) %>%
+      addPolygons(
+        data = parks_poly,
+        color = "blue",
+        weight = 2,
+        fillOpacity = 0.1,
+        popup = ~paste0("<b>Park:</b> ", Park_Name)
+      ) %>%
+      addCircleMarkers(
+        data = lights_within,
+        radius = 4,
+        stroke = FALSE,
+        fillColor = "yellow",
+        fillOpacity = 0.8,
+        popup = ~paste0("<b>Lumens:</b> ", Lumens)
+      )
+  })
+  
+  ## Histogram
+  output$light_hist <- renderPlot({
+    
+    prepped <- prepped_dataJ()
+    
+    # Create the park buffer
+    parks_buf <- prepped$parks %>%
+      st_set_geometry("buffer") %>%
+      st_transform(st_crs(prepped$streetlights))
+    
+    # Filter to streetlights within the buffer
+    lights_filtered <- if (!is.null(input$park_select) && length(input$park_select) > 0) {
+      st_join(prepped$streetlights, parks_buf, join = st_within) %>%
+        filter(!is.na(Park_Name))
+    } else {
+      prepped$streetlights
+    }
+    
+    # Drop geometry for plotting
+    lights_df <- st_drop_geometry(lights_filtered)
+    
+    # Plot histogram
+    ggplot(lights_df, aes(x = Lumens)) +
+      geom_histogram(binwidth = 5000, fill = "yellow") +
+      labs(
+        x = "Streetlight Brightness (Lumens)",
+        y = "Count",
+        title = "Distribution of All Streetlights"
+      ) +
+      # Match the hist theme to the map theme
+      theme(
+        panel.background = element_rect(fill = "black"),
+        plot.background  = element_rect(fill = "black"),
+        panel.grid.major = element_line(color = "grey"),
+        panel.grid.minor = element_line(color = "grey"),
+        axis.text = element_text(color = "white"),
+        axis.title = element_text(color = "white")
+      )
+  })
   
   ###Erich - tab4 (Facilities Near Parks) ---------------------------------------------------------------------------------------------
   

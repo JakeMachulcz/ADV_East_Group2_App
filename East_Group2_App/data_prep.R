@@ -2,6 +2,7 @@
 library(tidyverse)
 library(sf)
 library(leaflet)
+library(stringr)
 
 #get parks data
 parks <- read.csv("Parks_Locations_and_Features.csv")
@@ -119,23 +120,124 @@ generate_crime_timeseries <- function(prepped_data) {
 }
 
 
-###Danielle - Business License data  ----------------------------------------------------------------------------
+###Danielle -- Business License data  ----------------------------------------------------------------------------
 licenses <- read.csv("Business_Licenses.csv")
 
 
 
 
 
-###Jake - Parks(?) data  --------------------------------------------------------------------------------------
+###Jake -- Street Lights data  --------------------------------------------------------------------------------------
+streetlights <- read.csv("Street_Lights.csv")
 
+# Keep only the necessary columns
+streetlights_lite <- streetlights %>%
+  select(Lat, Lon, Lumens, Photo_Cont)
 
+glimpse(streetlights_lite)
 
+# Clean the `Lumens` data (remove characters, keep only the integer)
+typeof(streetlights_lite$Lumens)
 
+streetlights_lite <- streetlights_lite %>%
+  mutate(
+    Lumens_int = Lumens %>%
+      as.character() %>%
+      str_extract("[0-9,]+") %>%
+      str_replace_all(",", "") %>%
+      as.integer()
+  )
 
+typeof(streetlights_lite$Lumens_int)
 
+## Correct the typos due to them not being feasible (95,000 & 500,000)
+streetlights_lite$Lumens_int <- ifelse(
+  
+  streetlights_lite$Lumens_int > 50000,
+  streetlights_lite$Lumens_int / 10,
+  streetlights_lite$Lumens_int
+  ) %>%
+  as.integer()
 
+# Convert the `Photo_Cont` data to boolean
+table(streetlights_lite$Photo_Cont, useNA = "ifany")
 
+streetlights_lite$Photo_Cont <- ifelse(
+  streetlights_lite$Photo_Cont == "Yes", TRUE,
+  ifelse(streetlights_lite$Photo_Cont == "No", FALSE, NA)
+  )
 
+table(streetlights_lite$Photo_Cont, useNA = "ifany")
+
+# Final clean streetlights data
+sl_clean <- streetlights_lite %>%
+  select(Lat, Lon, Lumens_int, Photo_Cont) %>%
+  rename(Lumens = Lumens_int)
+
+glimpse(sl_clean)
+
+# Convert to sf to be used with parks
+streetlights_sf <- st_as_sf(
+  sl_clean,
+  coords = c("Lon", "Lat"),
+  crs = lat_lon_crs
+)
+streetlights_proj <- st_transform(streetlights_sf, sb_utm)
+
+# Simplify parks data - same as Bridget's, but for my use
+parks_projJ <- parks_proj[c("Park_Name", "geometry")]
+
+# Function to filter the datasets and call generating functions
+respond_to_inputsJ <- function(selected_parks, light_radius, min_lumens) {
+  
+  # Filter for selected parks
+  parks_filteredJ <- parks_projJ
+  if (!is.null(selected_parks)) {
+    parks_filteredJ <- parks_filteredJ %>%
+      filter(Park_Name %in% selected_parks)
+  }
+  
+  # Filter streetlights by brightness
+  streetlights_filtered <- streetlights_proj
+  if (!is.null(min_lumens)) {
+    streetlights_filtered <- streetlights_filtered %>%
+      filter(Lumens >= min_lumens)
+  }
+  
+  # Create buffers around the parks
+  parks_filteredJ <- parks_filteredJ %>%
+    mutate(buffer = st_buffer(geometry, dist = light_radius))
+  
+  # Return the filtered datasets
+  list(parks = parks_filteredJ, streetlights = streetlights_filtered)
+}
+
+# Function to create the streetlight map
+generate_light_map <- function(prepped_data) {
+  
+  # Join the streetlights to park buffers
+  lights_with_parks <- st_join(
+    prepped_data$streetlights,
+    prepped_data$parks %>% st_set_geometry("buffer"),
+    join = st_within
+  )
+  
+  # Count the number of lights per park
+  light_counts <- lights_with_parks %>%
+    st_drop_geometry() %>%
+    count(Park_Name, name = "light_count") %>%
+    filter(!is.na(Park_Name))
+  
+  # Join the data
+  park_dataJ <- prepped_data$parks %>%
+    left_join(light_counts, by = "Park_Name") %>%
+    mutate(light_count = replace_na(light_count, 0))
+  
+  # Transform back to lat and lon for leaflet
+  parks_mapJ <- st_transform(park_dataJ, 4326)
+  
+  return(parks_mapJ)
+}
 
 #Erich -- Facilities data  -------------------------------------------------------------------------------------
 facilities <- read.csv("Public_Facilities.csv")
