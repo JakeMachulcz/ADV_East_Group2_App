@@ -4,6 +4,7 @@ library(sf)
 library(leaflet)
 library(stringr)
 library(janitor)
+library(tidygeocoder)
 
 #get parks data
 parks <- read.csv("Parks_Locations_and_Features.csv")
@@ -123,21 +124,25 @@ generate_crime_timeseries <- function(prepped_data) {
 
 ###Danielle -- Business License data  ----------------------------------------------------------------------------
 
-library(tidygeocoder)
-
-licenses_raw <- read_csv("Business_Licenses.csv") |>
+# ---- Business Licenses ----
+licenses_raw <- read_csv("Business_Licenses.csv") %>%
   clean_names()
 
-# Build full address for geocoding
-licenses_clean <- licenses_raw |>
+# Build full address + active flag
+licenses_clean <- licenses_raw %>%
   mutate(
     full_address = paste(street_address, city, state, zip_code, sep = ", "),
     active = status == "Active"
   )
 
-# Geocode addresses → adds lat + long columns
-licenses_geocoded <- licenses_clean |>
-  geocode(address = full_address, method = "osm", lat = "lat", long = "lon")
+# Geocode addresses
+licenses_geocoded <- licenses_clean %>%
+  geocode(
+    address = full_address,
+    method  = "osm",
+    lat     = "lat",
+    long    = "lon"
+  )
 
 # Convert to sf
 licenses_sf <- st_as_sf(
@@ -150,8 +155,56 @@ licenses_sf <- st_as_sf(
 # Project for distance calculations
 licenses_proj <- st_transform(licenses_sf, sb_utm)
 
-# Parks object for Danielle’s tab
-parks_projD <- parks_proj[c("Park_Name", "geometry")]
+# ---- Parks object for Danielle’s tab (matches others’ pattern) ----
+parks_projD <- parks_proj %>%
+  select(Park_Name, geometry)
+
+# ---- Function to filter datasets for Danielle’s tab ----
+respond_to_inputsD <- function(
+  selected_parks,
+  biz_radius,
+  biz_type = "All",
+  active_only = FALSE
+) {
+  
+  # Filter for selected parks
+  parks_filteredD <- parks_projD
+  if (!is.null(selected_parks) && length(selected_parks) > 0) {
+    parks_filteredD <- parks_filteredD %>%
+      filter(Park_Name %in% selected_parks)
+  }
+  
+  # Create buffers around parks
+  parks_filteredD <- parks_filteredD %>%
+    mutate(buffer = st_buffer(geometry, dist = biz_radius))
+  
+  # Filter businesses
+  businesses_filtered <- licenses_proj
+  
+  if (active_only) {
+    businesses_filtered <- businesses_filtered %>%
+      filter(active)
+  }
+  
+  if (biz_type != "All") {
+    businesses_filtered <- businesses_filtered %>%
+      filter(license_type == biz_type)
+  }
+  
+  # Spatial join: businesses within park buffers
+  businesses_near_parks <- st_join(
+    businesses_filtered,
+    parks_filteredD %>% st_set_geometry("buffer"),
+    join = st_within
+  ) %>%
+    filter(!is.na(Park_Name))
+  
+  # Return filtered datasets
+  list(
+    parks      = parks_filteredD,
+    businesses = businesses_near_parks
+  )
+}
 
 ###Jake -- Street Lights data  --------------------------------------------------------------------------------------
 streetlights <- read.csv("Street_Lights.csv")
@@ -325,6 +378,7 @@ generate_facilities_near_parks <- function(
     facilities_near = facilities_near
   )
 }
+
 
 
 
