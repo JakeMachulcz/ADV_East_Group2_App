@@ -140,7 +140,8 @@ licenses_sf <- st_as_sf(
 
 licenses_proj <- st_transform(licenses_sf, sb_utm)
 
-
+# parks object for Danielle's tab
+parks_projD <- parks_proj[c("Park_Name", "geometry")]
 
 ###Jake -- Street Lights data  --------------------------------------------------------------------------------------
 streetlights <- read.csv("Street_Lights.csv")
@@ -314,6 +315,7 @@ generate_facilities_near_parks <- function(
     facilities_near = facilities_near
   )
 }
+
 
 
 
