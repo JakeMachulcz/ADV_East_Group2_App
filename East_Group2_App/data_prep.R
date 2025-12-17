@@ -124,25 +124,10 @@ generate_crime_timeseries <- function(prepped_data) {
 
 ###Danielle -- Business License data  ----------------------------------------------------------------------------
 
-# ---- Business Licenses ----
-licenses_raw <- read_csv("Business_Licenses.csv") %>%
-  clean_names()
+licenses_geocoded <- read.csv("licenses_geocoded.csv")
 
-# Build full address + active flag
-licenses_clean <- licenses_raw %>%
-  mutate(
-    full_address = paste(street_address, city, state, zip_code, sep = ", "),
-    active = status == "Active"
-  )
-
-# Geocode addresses
-licenses_geocoded <- licenses_clean %>%
-  geocode(
-    address = full_address,
-    method  = "osm",
-    lat     = "lat",
-    long    = "lon"
-  )
+licenses_geocoded <- licenses_geocoded %>%
+  filter(!is.na(lat), !is.na(lon))
 
 # Convert to sf
 licenses_sf <- st_as_sf(

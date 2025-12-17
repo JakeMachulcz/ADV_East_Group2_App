@@ -53,48 +53,48 @@ ui <- fluidPage(
       br()
     ),
     
-    
     #Danielle's work ---------------------------------------------------------------------------------------------
     tabPanel(
-  "Business Licenses Near Parks",
-  
-  h3("Businesses Near Selected Parks"),
-  
-  fluidRow(
-    column(
-      6,
-      selectInput(
-        inputId = "biz_type",
-        label   = "Business Type:",
-        choices = c("All", sort(unique(licenses_proj$license_type))),
-        selected = "All"
-      )
+      "Business Licenses Near Parks",
+      
+      h3("Businesses Near Selected Parks"),
+      
+      fluidRow(
+        column(
+          6,
+          selectInput(
+            inputId = "biz_type",
+            label   = "Business Type:",
+            choices = c("All", sort(unique(licenses_proj$license_type))),
+            selected = "All"
+          )
+        ),
+        column(
+          6,
+          checkboxInput(
+            inputId = "active_only",
+            label   = "Show Only Active Licenses",
+            value   = FALSE
+          )
+        )
+      ),
+      
+      br(),
+      
+      fluidRow(
+        column(6, h4("Business Locations")),
+        column(6, h4("Business Type Breakdown"))
+      ),
+      
+      fluidRow(
+        column(6, leafletOutput("business_map", height = 600)),
+        column(6, plotOutput("business_bar", height = 600))
+      ),
+      
+      br(),
+      br()
     ),
-    column(
-      6,
-      checkboxInput(
-        inputId = "active_only",
-        label   = "Show Only Active Licenses",
-        value   = FALSE
-      )
-    )
-  ),
-  
-  br(),
-  
-  fluidRow(
-    column(6, h4("Business Locations")),
-    column(6, h4("Business Type Breakdown"))
-  ),
-  
-  fluidRow(
-    column(6, leafletOutput("business_map", height = 600)),
-    column(6, plotOutput("business_bar", height = 600))
-  ),
-  
-  br(),
-  br()
-)
+    
     #Jake's work ---------------------------------------------------------------------------------------------
     tabPanel(
       "Streetlight Data",
@@ -238,81 +238,81 @@ server <- function(input, output, session) {
   
   ### Danielle - Business Licenses Tab -------------------------------------------------------------
 
-prepped_dataD <- reactive({
-  respond_to_inputsD(
-    selected_parks = input$park_select,
-    biz_radius     = input$radius,
-    biz_type       = input$biz_type,
-    active_only    = input$active_only
-  )
-})
-
-output$business_map <- renderLeaflet({
-  
-  dat <- prepped_dataD()
-  
-  # Convert parks to lat/lon for leaflet
-  parks_map <- dat$parks %>%
-    st_set_geometry("buffer") %>%
-    st_transform(4326)
-  
-  # Convert businesses to lat/lon
-  biz_map <- dat$businesses %>%
-    st_transform(4326)
-  
-  leaflet() %>%
-    addProviderTiles(providers$CartoDB.Positron) %>%
-    
-    # Park buffer polygons
-    addPolygons(
-      data = parks_map,
-      color = "blue",
-      weight = 2,
-      fillOpacity = 0.1,
-      popup = ~paste0(
-        "<b>Park:</b> ", Park_Name,
-        "<br><b>Radius (m):</b> ", input$radius
-      )
-    ) %>%
-    
-    # Business points
-    addCircleMarkers(
-      data = biz_map,
-      radius = 5,
-      stroke = FALSE,
-      fillOpacity = 0.8,
-      popup = ~paste0(
-        "<b>", business_name, "</b><br/>",
-        "Type: ", license_type, "<br/>",
-        "Status: ", status
-      )
+  prepped_dataD <- reactive({
+    respond_to_inputsD(
+      selected_parks = input$park_select,
+      biz_radius     = input$radius,
+      biz_type       = input$biz_type,
+      active_only    = input$active_only
     )
-})
-
-output$business_bar <- renderPlot({
+  })
   
-  dat <- prepped_dataD()
+  output$business_map <- renderLeaflet({
+    
+    dat <- prepped_dataD()
+    
+    # Convert parks to lat/lon for leaflet
+    parks_map <- dat$parks %>%
+      st_set_geometry("buffer") %>%
+      st_transform(4326)
+    
+    # Convert businesses to lat/lon
+    biz_map <- dat$businesses %>%
+      st_transform(4326)
+    
+    leaflet() %>%
+      addProviderTiles(providers$CartoDB.Positron) %>%
+      
+      # Park buffer polygons
+      addPolygons(
+        data = parks_map,
+        color = "blue",
+        weight = 2,
+        fillOpacity = 0.1,
+        popup = ~paste0(
+          "<b>Park:</b> ", Park_Name,
+          "<br><b>Radius (m):</b> ", input$radius
+        )
+      ) %>%
+      
+      # Business points
+      addCircleMarkers(
+        data = biz_map,
+        radius = 5,
+        stroke = FALSE,
+        fillOpacity = 0.8,
+        popup = ~paste0(
+          "<b>", business_name, "</b><br/>",
+          "Type: ", license_type, "<br/>",
+          "Status: ", status
+        )
+      )
+  })
   
-  biz_df <- dat$businesses %>%
-    st_drop_geometry()
-  
-  # Handle empty selections gracefully
-  if (nrow(biz_df) == 0) {
-    ggplot() +
-      labs(title = "No businesses found for selected filters") +
-      theme_minimal()
-  } else {
-    ggplot(biz_df, aes(x = fct_infreq(license_type))) +
-      geom_bar(fill = "steelblue") +
-      coord_flip() +
-      labs(
-        x = "Business Type",
-        y = "Number of Businesses",
-        title = "Business Types Near Selected Parks"
-      ) +
-      theme_minimal()
-  }
-})
+  output$business_bar <- renderPlot({
+    
+    dat <- prepped_dataD()
+    
+    biz_df <- dat$businesses %>%
+      st_drop_geometry()
+    
+    # Handle empty selections gracefully
+    if (nrow(biz_df) == 0) {
+      ggplot() +
+        labs(title = "No businesses found for selected filters") +
+        theme_minimal()
+    } else {
+      ggplot(biz_df, aes(x = fct_infreq(license_type))) +
+        geom_bar(fill = "steelblue") +
+        coord_flip() +
+        labs(
+          x = "Business Type",
+          y = "Number of Businesses",
+          title = "Business Types Near Selected Parks"
+        ) +
+        theme_minimal()
+    }
+  })
 
   ###Jake - tab3 ---------------------------------------------------------------------------------------------
   prepped_dataJ <- reactive({
