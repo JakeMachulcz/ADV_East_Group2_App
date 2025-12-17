@@ -3,6 +3,7 @@ library(tidyverse)
 library(sf)
 library(leaflet)
 library(stringr)
+library(janitor)
 
 #get parks data
 parks <- read.csv("Parks_Locations_and_Features.csv")
@@ -121,9 +122,23 @@ generate_crime_timeseries <- function(prepped_data) {
 
 
 ###Danielle -- Business License data  ----------------------------------------------------------------------------
-licenses <- read.csv("Business_Licenses.csv")
 
+licenses <- read_csv("Business_Licenses.csv") |>
+  clean_names() |>
+  mutate(
+    license_start_date = as.Date(license_start_date),
+    license_end_date   = as.Date(license_end_date),
+    license_active     = license_status == "Active"
+  ) |>
+  filter(!is.na(lat), !is.na(lon))
 
+licenses_sf <- st_as_sf(
+  licenses,
+  coords = c("lon", "lat"),
+  crs = lat_lon_crs
+)
+
+licenses_proj <- st_transform(licenses_sf, sb_utm)
 
 
 
@@ -299,6 +314,7 @@ generate_facilities_near_parks <- function(
     facilities_near = facilities_near
   )
 }
+
 
 
 
