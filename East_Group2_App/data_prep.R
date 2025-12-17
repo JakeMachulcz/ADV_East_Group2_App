@@ -168,7 +168,7 @@ respond_to_inputsD <- function(
   
   if (active_only) {
     businesses_filtered <- businesses_filtered %>%
-      filter(active)
+      filter(str_to_lower(status) == "active")
   }
   
   if (biz_type != "All") {

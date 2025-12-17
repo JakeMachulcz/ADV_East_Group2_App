@@ -26,8 +26,8 @@ ui <- fluidPage(
   tabsetPanel(
     #Bridget's work ---------------------------------------------------------------------------------------------
     tabPanel(
-      "Crime Data",
-      h3("How much crime occurs around each park?"),
+      "Crime",
+      h3("How Much Crime Occurs Around Each Park?"),
       fluidRow(
         #inputs for date range
         column(12, dateRangeInput(inputId = "date_range", label = "Select date range:",
@@ -55,9 +55,8 @@ ui <- fluidPage(
     
     #Danielle's work ---------------------------------------------------------------------------------------------
     tabPanel(
-      "Business Licenses Near Parks",
-      
-      h3("Businesses Near Selected Parks"),
+      "Business Licenses",
+      h3("What Businesses Are Around Each Park?"),
       
       fluidRow(
         column(
@@ -97,8 +96,8 @@ ui <- fluidPage(
     
     #Jake's work ---------------------------------------------------------------------------------------------
     tabPanel(
-      "Streetlight Data",
-      h3("How well-lit is each park?"),
+      "Streetlights",
+      h3("How Well-Lit Is Each Park?"),
       
       fluidRow(
         column(
@@ -129,7 +128,7 @@ ui <- fluidPage(
     
     #Erich's work ---------------------------------------------------------------------------------------------
     tabPanel(
-      "Facilities Near Parks",
+      "What Facilities Are Near Each Park?",
       h3("Facilities Near Parks"),
       h4("Which public facilities are within a chosen distance of parks?"),
       sidebarLayout(
@@ -328,10 +327,9 @@ server <- function(input, output, session) {
     
     prepped <- prepped_dataJ()
     
-    # Park buffers in same CRS as streetlights
     parks_buf <- prepped$parks %>%
       st_set_geometry("buffer") %>%
-      # match CRS of lights, since it was a bug
+      # Match CRS of lights, since it was a bug
       st_transform(st_crs(prepped$streetlights))
     
     # Only streetlights within selected park buffers
@@ -419,12 +417,12 @@ server <- function(input, output, session) {
     
     dat <- facilities_near_data()
     
-    # 1) parks: turn buffer column into the ACTIVE geometry (polygons)
+    # 1) parks: turn buffer column into the ACTIVE geometry
     parks_poly <- dat$parks_buf %>%
-      st_set_geometry("buffer") %>%   # <-- THIS is the key fix
+      st_set_geometry("buffer") %>%
       st_transform(4326)
     
-    # 2) facilities: convert to lat/lon and create Lon/Lat from geometry (safe)
+    # 2) facilities: convert to lat/lon and create lon/at from geometry
     fac_map <- st_transform(dat$facilities_near, 4326)
     coords <- st_coordinates(fac_map)
     fac_map$Lon <- coords[, 1]
