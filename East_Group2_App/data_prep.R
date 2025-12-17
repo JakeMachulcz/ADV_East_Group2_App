@@ -123,24 +123,34 @@ generate_crime_timeseries <- function(prepped_data) {
 
 ###Danielle -- Business License data  ----------------------------------------------------------------------------
 
-licenses <- read_csv("Business_Licenses.csv") |>
-  clean_names() |>
-  mutate(
-    license_start_date = as.Date(license_start_date),
-    license_end_date   = as.Date(license_end_date),
-    license_active     = license_status == "Active"
-  ) |>
-  filter(!is.na(lat), !is.na(lon))
+library(tidygeocoder)
 
+licenses_raw <- read_csv("Business_Licenses.csv") |>
+  clean_names()
+
+# Build full address for geocoding
+licenses_clean <- licenses_raw |>
+  mutate(
+    full_address = paste(street_address, city, state, zip_code, sep = ", "),
+    active = status == "Active"
+  )
+
+# Geocode addresses → adds lat + long columns
+licenses_geocoded <- licenses_clean |>
+  geocode(address = full_address, method = "osm", lat = "lat", long = "lon")
+
+# Convert to sf
 licenses_sf <- st_as_sf(
-  licenses,
+  licenses_geocoded,
   coords = c("lon", "lat"),
-  crs = lat_lon_crs
+  crs = lat_lon_crs,
+  remove = FALSE
 )
 
+# Project for distance calculations
 licenses_proj <- st_transform(licenses_sf, sb_utm)
 
-# parks object for Danielle's tab
+# Parks object for Danielle’s tab
 parks_projD <- parks_proj[c("Park_Name", "geometry")]
 
 ###Jake -- Street Lights data  --------------------------------------------------------------------------------------
@@ -315,6 +325,7 @@ generate_facilities_near_parks <- function(
     facilities_near = facilities_near
   )
 }
+
 
 
 
