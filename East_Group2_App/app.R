@@ -56,10 +56,36 @@ ui <- fluidPage(
     
     #Danielle's work ---------------------------------------------------------------------------------------------
     tabPanel(
-      "Business Licenses",
-      h3("Business Licenses"),
-      DT::dataTableOutput("table2")
+  "Business Licenses Near Parks",
+  h3("Businesses Near Selected Parks"),
+  
+  fluidRow(
+    column(6,
+      selectInput(
+        inputId = "biz_type",
+        label   = "Business Type:",
+        choices = c("All", sort(unique(licenses$business_type)))
+      )
     ),
+    column(6,
+      checkboxInput("active_only", "Show Only Active Licenses", FALSE)
+    )
+  ),
+  
+  br(),
+  
+  fluidRow(
+    column(6, h4("Business Map")),
+    column(6, h4("Business Summary"))
+  ),
+  
+  fluidRow(
+    column(6, leafletOutput("business_map", height = 600)),
+    column(6, plotOutput("business_bar", height = 600))
+  ),
+  
+  br(), br()
+),
     #Jake's work ---------------------------------------------------------------------------------------------
     tabPanel(
       "Streetlight Data",
@@ -202,8 +228,25 @@ server <- function(input, output, session) {
   
   
   ###Danielle - tab2 ---------------------------------------------------------------------------------------------
-  output$table2 <- DT::renderDataTable(licenses)
-  
+  # Reactive: filter + buffer + join using Danielle’s data
+prepped_dataD <- reactive({
+  respond_to_inputsD(
+    selected_parks = input$park_select,
+    biz_radius     = input$radius,
+    biz_type       = input$biz_type,
+    active_only    = input$active_only
+  )
+})
+
+# Map output
+output$business_map <- renderLeaflet({
+  generate_business_map(prepped_dataD())
+})
+
+# Bar chart output
+output$business_bar <- renderPlot({
+  generate_business_bar(prepped_dataD())
+})
   ###Jake - tab3 ---------------------------------------------------------------------------------------------
   prepped_dataJ <- reactive({
     respond_to_inputsJ(
@@ -361,3 +404,4 @@ server <- function(input, output, session) {
 }
 
 shinyApp(ui = ui, server = server)
+
